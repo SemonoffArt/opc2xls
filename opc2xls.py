@@ -2,7 +2,7 @@ import asyncio
 import logging
 from re import search
 import time
-import pandas as pd  # Set -ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted
+import pandas as pd
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,6 +34,7 @@ logging.basicConfig(
 
 
 class OPC_UA_Client:
+    """Simple OPC UA Client"""
     def __init__(self, endpoint: str, root_node_id: str):
         self.client = Client(endpoint)
         self.endpoint = endpoint
@@ -84,8 +85,8 @@ class OPC_UA_Client:
             try:
                 # value = await node.read_value()
                 data_value = await node.read_data_value()
-                tags.append((tag.BrowseName.Name, data_value.SourceTimestamp + timedelta(hours=_MAGADAN_UTC),
-                             data_value.Value.Value))
+                tags.append((tag.BrowseName.Name, data_value.Value.Value,
+                             data_value.SourceTimestamp + timedelta(hours=_MAGADAN_UTC),))
 
                 print(f"{Fore.WHITE}Tag:{Fore.YELLOW} {tag.BrowseName.Name}{Fore.WHITE}; "
                       f"Value:{Fore.YELLOW} {data_value.Value.Value}{Fore.WHITE}; "
@@ -100,19 +101,22 @@ class OPC_UA_Client:
 
 
 def tags2excel(tags: list, file: Path):
-    """Saves tags to excel file"""
-    df_tag = pd.DataFrame(tags, columns=["Tag", "Timestamp", "Value"])
+    """Save list of tags to excel file"""
+    df_tag = pd.DataFrame(tags, columns=["Tag", "Value", "Timestamp"])
     # Check which columns have timezones datetime64[ns, UTC]
     # df_tag.dtypes
     # Remove timezone from columns
     df_tag['Timestamp'] = df_tag['Timestamp'].dt.tz_localize(None)
-    print(f"{Fore.WHITE}Saving to {Fore.MAGENTA}{file} {Style.RESET_ALL}", end="\t")
+    print(f"\n{Fore.WHITE}Saving to {Fore.MAGENTA}{file} {Style.RESET_ALL}", end="\t")
     try:
         with pd.ExcelWriter(file, engine="xlsxwriter") as writer:
             df_tag.to_excel(writer, sheet_name='opc2xls', startrow=2, startcol=0, index=False)
             worksheet = writer.sheets['opc2xls']
-            worksheet.write(0, 0, f"OPC Tags from: {OPC_URL}; Filter: {TAG_FILTER}; Items:{df_tag.shape[0]}; "
+            worksheet.write(0, 0, f"OPC UA Tags from: {OPC_URL};\t Filter: {TAG_FILTER};\t Items:{df_tag.shape[0]};\t "
                                   f"DT:{datetime.now()}")
+            worksheet.set_column('A:A', 27)
+            worksheet.set_column('B:B', 18)
+            worksheet.set_column('C:C', 19)
 
         print(f"{Fore.GREEN}OK {Style.RESET_ALL}")
 
@@ -127,50 +131,50 @@ async def main():
     """"""
     global XLS_FILE, TAG_FILTER, OPC_URL, TAGS_NODE_ID
     start_time = time.time()
-    print(f"\n{Fore.LIGHTWHITE_EX}OPC2XML v{_VERSION} - uploads OPC UA tags to EXCEL{Style.RESET_ALL}")
+    print(f"\n{Fore.LIGHTWHITE_EX}OPC2XML v{_VERSION} - upload OPC UA tags to EXCEL{Style.RESET_ALL}")
+    try:
+        # Parse arguments in cmd line
+        parser = argparse.ArgumentParser(
+            prog=f'OPC2XLS',
+            description='OPCXLS - upload OPC UA tags to EXCEL',
+            epilog=f'2024 7Art v{_VERSION}'
+        )
 
-    # Parse arguments in cmd line
-    parser = argparse.ArgumentParser(
-        prog=f'OPC2XLS',
-        description='OPCXLS - uploads OPC UA tags to EXCEL',
-        epilog=f'2024 7Art v{_VERSION}'
-    )
-    # try:
-    parser.add_argument('-ep_url', type=str, default=OPC_URL,
-                        help=f'OPC End Point URL (Default:"{OPC_URL})"')
-    parser.add_argument('-node', type=str, default=TAGS_NODE_ID,
-                        help=f'Server NODE contains Tags (Default: "{TAGS_NODE_ID}")')
-    parser.add_argument('-filter', type=str, default=TAG_FILTER,
-                        help=f'Tags filter (Default:"{TAG_FILTER}")')
-    parser.add_argument('-file', type=str, default=XLS_FILE,
-                        help=f'Excel file name (Default: "{XLS_FILE}")')
-    args = parser.parse_args()
+        parser.add_argument('-ep_url', type=str, default=OPC_URL,
+                            help=f'OPC End Point URL (Default:"{OPC_URL}")')
+        parser.add_argument('-node', type=str, default=TAGS_NODE_ID,
+                            help=f'OPC NODE Identifier Contains Tags (Default: "{TAGS_NODE_ID}")')
+        parser.add_argument('-filter', type=str, default=TAG_FILTER,
+                            help=f'Tags Filter (Default:"{TAG_FILTER}")')
+        parser.add_argument('-file', type=str, default=XLS_FILE,
+                            help=f'Excel File Name (Default: "{XLS_FILE}")')
+        args = parser.parse_args()
 
-    OPC_URL = args.ep_url  # OPC and point URL
-    TAGS_NODE_ID = args.node  # NODE contains PLC tags
-    TAG_FILTER = args.filter  #
-    XLS_FILE = args.file  #
+        OPC_URL = args.ep_url  # OPC and point URL
+        TAGS_NODE_ID = args.node  # NODE contains PLC tags
+        TAG_FILTER = args.filter  #
+        XLS_FILE = args.file  #
 
-    # Connect to OPC UA Server and get tags
-    async with OPC_UA_Client(OPC_URL, TAGS_NODE_ID) as opc:
-        opc_tags = await opc.get_tags(TAG_FILTER)
+        # Connect to OPC UA Server and get tags
+        async with OPC_UA_Client(OPC_URL, TAGS_NODE_ID) as opc:
+            opc_tags = await opc.get_tags(TAG_FILTER)
 
-    # Save tags to Excel
-    if len(opc_tags) > 0:
-        tags2excel(opc_tags, XLS_FILE)
+        # Save tags to Excel
+        if len(opc_tags) > 0:
+            tags2excel(opc_tags, XLS_FILE)
 
-    print(f"{Fore.WHITE}Tags Items: {Fore.YELLOW}{len(opc_tags)}{Style.RESET_ALL}")
-    print(f"{Fore.WHITE}Full time: {Fore.GREEN}{round(time.time() - start_time)} {Fore.WHITE}sec;")
-    # except Exception as e:
-    #     print(e)
-    #     logger.error(e)
-    #
-    # finally:
-    #     pass
-    #     # print("Press Enter to continue...")
-    #     # input()
+        print(f"{Fore.WHITE}Tags Items: {Fore.YELLOW}{len(opc_tags)}{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}Full time: {Fore.GREEN}{round(time.time() - start_time)} {Fore.WHITE}sec")
+    except Exception as e:
+        print(e)
+        logger.error(e)
+
+    finally:
+        pass
+        # print("Press Enter to continue...")
+        # input()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    # logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
