@@ -122,7 +122,7 @@ def tags2excel(tags: list, file: Path):
 
     except Exception as e:
         print(f"{Fore.RED}FAULT{Style.RESET_ALL}")
-        err_msg = f"{Fore.RED}Error: Can't write tags to: {file}"
+        err_msg = f"{Fore.RED}Error: Can't write tags to: {file} {e}"
         print(err_msg)
         raise Exception(err_msg)
 
